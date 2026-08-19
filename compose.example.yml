@@ -1,0 +1,27 @@
+services:
+  dynmap-stats:
+    build: .
+    container_name: dynmap-stats
+    restart: unless-stopped
+    environment:
+      RCON_HOST: ${RCON_HOST:-minecraft}
+      RCON_PORT: ${RCON_PORT:-25575}
+      RCON_PASSWORD: ${RCON_PASSWORD:?Set RCON_PASSWORD in .env}
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-15}
+      HISTORY_HOURS: ${HISTORY_HOURS:-24}
+      RCON_TIMEOUT_MS: ${RCON_TIMEOUT_MS:-5000}
+      PORT: 3000
+    ports:
+      - "${DASHBOARD_BIND_ADDRESS:?Set this to the Docker host LAN IP}:${DASHBOARD_PORT:-3000}:3000"
+    networks:
+      - minecraft
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+networks:
+  minecraft:
+    external: true
+    name: ${MINECRAFT_NETWORK_NAME:-minecraft}
