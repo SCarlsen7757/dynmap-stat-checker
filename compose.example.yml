@@ -1,6 +1,6 @@
 services:
   dynmap-stats:
-    build: .
+    image: ghcr.io/scarlsen7757/dynmap-stat-checker:${DYNMAP_STATS_IMAGE_TAG:-latest}
     container_name: dynmap-stats
     restart: unless-stopped
     environment:

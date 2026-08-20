@@ -30,6 +30,8 @@ Copy `.env.example` to `.env`, then set:
 - `DASHBOARD_BIND_ADDRESS` to the Docker host's LAN address, not `0.0.0.0` if the host has a public interface.
 - `MINECRAFT_NETWORK_NAME` to the Docker network shared with Minecraft.
 
+The Compose example pulls `ghcr.io/scarlsen7757/dynmap-stat-checker`. Set `DYNMAP_STATS_IMAGE_TAG` to a release version such as `1.2.3` to pin deployments; leave it as `latest` to use the newest release.
+
 The supplied Compose file expects that shared network to already exist:
 
 ```sh
