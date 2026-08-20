@@ -7,21 +7,51 @@ services:
       RCON_HOST: ${RCON_HOST:-minecraft}
       RCON_PORT: ${RCON_PORT:-25575}
       RCON_PASSWORD: ${RCON_PASSWORD:?Set RCON_PASSWORD in .env}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-15}
-      HISTORY_HOURS: ${HISTORY_HOURS:-24}
+      HISTORY_DAYS: ${HISTORY_DAYS:-30}
       RCON_TIMEOUT_MS: ${RCON_TIMEOUT_MS:-5000}
       PORT: 3000
     ports:
       - "${DASHBOARD_BIND_ADDRESS:?Set this to the Docker host LAN IP}:${DASHBOARD_PORT:-3000}:3000"
     networks:
       - minecraft
+      - database
+    depends_on:
+      postgres:
+        condition: service_healthy
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp
 
+  postgres:
+    image: postgres:17-alpine
+    container_name: dynmap-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dynmap}
+      POSTGRES_USER: ${POSTGRES_USER:-dynmap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    security_opt:
+      - no-new-privileges:true
+
 networks:
   minecraft:
     external: true
     name: ${MINECRAFT_NETWORK_NAME:-minecraft}
+  database:
+    internal: true
+
+volumes:
+  postgres-data:
