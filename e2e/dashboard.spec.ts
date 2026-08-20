@@ -2,41 +2,41 @@ import { expect, test } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/api/stats/latest', (route) => route.fulfill({ json: {
-    connection: { state: 'connected', lastAttemptAt: new Date().toISOString(), lastSuccessAt: new Date().toISOString(), error: null, pollIntervalSeconds: 15, historyHours: 48 },
-    queueDelta: -31,
+    connection: { state: 'connected', lastAttemptAt: new Date().toISOString(), lastSuccessAt: new Date().toISOString(), error: null, pollIntervalSeconds: 15, historyDays: 30 },
     sample: {
       observedAt: new Date().toISOString(), queue: { tileUpdates: 121, zoomOut: 2879, total: 3000 },
-      maps: [
-        { id: 'world.surface', processed: 19872, rendered: 19001, updated: 12044, transparent: 87 },
-        { id: 'world.flat', processed: 14222, rendered: 14082, updated: 9104, transparent: 12 },
-      ],
-      totals: { processed: 34094, rendered: 33083, updated: 21148, transparent: 99 }, activeRenderJobs: ['world:surface fullrender'],
-      pause: { fullRadius: false, updates: false, zoomOut: false }, cacheHitRate: 88.45,
-      chunks: [{ category: 'Cached', count: 40510, millisecondsPerChunk: 0 }, { category: 'Load Required', count: 861, millisecondsPerChunk: 1.42 }],
-      raw: 'Triggered update queue size: 121 + 2879',
+      activeRenderJobCount: 1, cacheHitRate: 88.45,
     },
   }}));
-  await page.route('**/api/stats/history?hours=*', (route) => route.fulfill({ json: {
-    hours: 1,
-    points: Array.from({ length: 40 }, (_, index) => ({ observedAt: new Date(Date.now() - (40 - index) * 15000).toISOString(), tileUpdates: 121, zoomOut: 4000 - index * 28, total: 4121 - index * 28 })),
+  await page.route('**/api/stats/history?days=*', (route) => route.fulfill({ json: {
+    days: 7,
+    from: new Date(Date.now() - 7 * 86400000).toISOString(),
+    to: new Date().toISOString(),
+    resolutionSeconds: 3600,
+    points: Array.from({ length: 120 }, (_, index) => {
+      const total = 3000 + Math.round(Math.sin(index / 6) * 900) - index * 4;
+      return { observedAt: new Date(Date.now() - (120 - index) * 3600000).toISOString(), total, maxTotal: total + 80 };
+    }),
   }}));
 });
 
-test('shows the queue and full runtime statistics', async ({ page }, testInfo) => {
+test('shows live queue statistics and historical ASCII columns', async ({ page }, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'root@minecraft : dynmap' })).toBeVisible();
-  await expect(page.getByText('3,000')).toBeVisible();
+  await expect(page.getByText('3.000')).toBeVisible();
   await expect(page.getByText('88.45%')).toBeVisible();
   await expect(page.getByText('base tile queue')).toBeVisible();
   await expect(page.getByText('zoom tile queue')).toBeVisible();
-  await expect(page.getByRole('button', { name: '5m', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '15m', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '30m', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '1h', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByRole('button', { name: '48h', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Maps and worlds' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Loading paths' })).toHaveCount(0);
-  await expect(page.getByText('ENABLED')).toHaveCount(3);
-  await expect(page.getByText('RUNNING')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '1d', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '2d', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '7d', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: '14d', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '30d', exact: true })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Queue history over 7 days/ })).toBeVisible();
+  await expect(page.getByText('fast shrink')).toBeVisible();
+  await expect(page.locator('.heat-scale')).toBeVisible();
+  await expect(page.locator('.ascii-column.growing').first()).toBeVisible();
+  await expect(page.locator('.ascii-column.shrinking').first()).toBeVisible();
+  await expect(page.locator('.ascii-column i').first()).toHaveText('█');
   await page.screenshot({ path: testInfo.outputPath('dashboard.png'), fullPage: true });
 });

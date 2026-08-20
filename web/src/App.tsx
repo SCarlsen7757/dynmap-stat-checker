@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import type { DynmapSample, HistoryPoint, HistoryResponse, LatestResponse } from '../../shared/types';
 
 const number = new Intl.NumberFormat('da-DK');
-const historyAnchors = [5 / 60, 15 / 60, 30 / 60, 1, 6, 24];
+const historyAnchors = [1, 2, 7, 14, 30];
+const chartRows = 10;
 
-function formatRange(hours: number): string {
-  if (hours < 1) return `${Math.round(hours * 60)}m`;
-  if (hours <= 48 || hours % 24 !== 0) return `${hours}h`;
-  return `${hours / 24}d`;
-}
-
-export function buildHistoryRanges(retentionHours: number) {
-  const values = [...historyAnchors.filter((hours) => hours <= retentionHours), retentionHours];
-  return [...new Set(values)].sort((left, right) => left - right).map((hours) => ({ hours, label: formatRange(hours) }));
+export function buildHistoryRanges(retentionDays: number) {
+  const values = [...historyAnchors.filter((days) => days <= retentionDays), retentionDays];
+  return [...new Set(values)].sort((left, right) => left - right).map((days) => ({ days, label: `${days}d` }));
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -146,40 +142,167 @@ function TotalQueueNumber({ value, observationKey }: { value: number | null; obs
   );
 }
 
-function QueueChart({ points }: { points: HistoryPoint[] }) {
-  const plotted = useMemo(() => {
-    if (points.length <= 240) return points;
-    const step = Math.ceil(points.length / 240);
-    return points.filter((_, index) => index % step === 0 || index === points.length - 1);
-  }, [points]);
+export function QueueDelta({ value, observationKey }: { value: number | null; observationKey?: string }) {
+  const previousVisibleValueRef = useRef<number | null>(null);
+  const [delta, setDelta] = useState<number | null>(null);
+  const [isVisible, setIsVisible] = useState(() => typeof document === 'undefined' || document.visibilityState !== 'hidden');
 
-  if (!plotted.length) return <div className="chart-empty">History begins after the first successful poll.</div>;
+  useEffect(() => {
+    const handleVisibilityChange = () => setIsVisible(document.visibilityState !== 'hidden');
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
-  const width = 1000;
-  const height = 250;
-  const maximum = Math.max(1, ...plotted.map((point) => point.total));
-  const coordinates = plotted.map((point, index) => ({
-    x: plotted.length === 1 ? 0 : index * width / (plotted.length - 1),
-    y: height - point.total / maximum * (height - 16) - 8,
-  }));
-  const line = coordinates.map(({ x, y }, index) => `${index ? 'L' : 'M'} ${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
-  const area = `${line} L ${width} ${height} L 0 ${height} Z`;
+  useEffect(() => {
+    if (!isVisible || value === null) return;
+
+    const previous = previousVisibleValueRef.current;
+    previousVisibleValueRef.current = value;
+    if (previous !== null) setDelta(value - previous);
+  }, [isVisible, observationKey, value]);
+
+  const direction = delta === null || delta === 0 ? '' : delta > 0 ? 'up' : 'down';
+  const trend = delta === null
+    ? 'awaiting change'
+    : delta === 0
+      ? 'no change'
+      : `${delta > 0 ? 'increased' : 'decreased'} by ${number.format(Math.abs(delta))}`;
+  return (
+    <div className={`delta ${direction}`}>
+      {trend}
+    </div>
+  );
+}
+
+export type AsciiColumn = {
+  peak: number | null;
+  closing: number | null;
+  rows: number;
+  ratePerMinute: number | null;
+  tone: 'stable' | 'growing' | 'shrinking';
+  color: string;
+};
+
+type MutableColumn = { peak: number; closing: number; observedAt: number } | null;
+
+const heatStops = [
+  { at: -1, color: '#35ef84' },
+  { at: -.55, color: '#42d7b5' },
+  { at: 0, color: '#63d8e8' },
+  { at: .35, color: '#f2c14e' },
+  { at: .7, color: '#ff8b52' },
+  { at: 1, color: '#ff4964' },
+] as const;
+
+function hexChannels(hex: string): [number, number, number] {
+  return [Number.parseInt(hex.slice(1, 3), 16), Number.parseInt(hex.slice(3, 5), 16), Number.parseInt(hex.slice(5, 7), 16)];
+}
+
+export function interpolateHeatColor(value: number): string {
+  const normalized = Math.max(-1, Math.min(1, value));
+  const upperIndex = heatStops.findIndex((stop) => stop.at >= normalized);
+  if (upperIndex <= 0) return heatStops[0].color;
+  const lower = heatStops[upperIndex - 1]!;
+  const upper = heatStops[upperIndex]!;
+  const progress = (normalized - lower.at) / (upper.at - lower.at);
+  const lowerChannels = hexChannels(lower.color);
+  const upperChannels = hexChannels(upper.color);
+  const channels = lowerChannels.map((channel, index) => Math.round(channel + (upperChannels[index]! - channel) * progress));
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
+export function buildAsciiColumns(points: HistoryPoint[], from: string, to: string, requestedCount: number): AsciiColumn[] {
+  const columnCount = Math.max(24, Math.min(96, Math.round(requestedCount)));
+  const fromMs = Date.parse(from);
+  const toMs = Date.parse(to);
+  const duration = Math.max(1, toMs - fromMs);
+  const slots: MutableColumn[] = Array.from({ length: columnCount }, () => null);
+
+  for (const point of points) {
+    const observedAt = Date.parse(point.observedAt);
+    if (!Number.isFinite(observedAt) || observedAt < fromMs || observedAt > toMs) continue;
+    const index = Math.min(columnCount - 1, Math.max(0, Math.floor((observedAt - fromMs) / duration * columnCount)));
+    const current = slots[index];
+    if (!current) {
+      slots[index] = { peak: point.maxTotal, closing: point.total, observedAt };
+    } else {
+      current.peak = Math.max(current.peak, point.maxTotal);
+      if (observedAt >= current.observedAt) {
+        current.closing = point.total;
+        current.observedAt = observedAt;
+      }
+    }
+  }
+
+  const rates: Array<number | null> = slots.map((slot, index) => {
+    if (!slot || index === 0) return null;
+    const previous = slots[index - 1];
+    if (!previous) return null;
+    const elapsedMinutes = (slot.observedAt - previous.observedAt) / 60000;
+    return elapsedMinutes > 0 ? (slot.closing - previous.closing) / elapsedMinutes : null;
+  });
+  const meaningfulRates = rates.filter((rate): rate is number => rate !== null && rate !== 0).map(Math.abs).sort((left, right) => left - right);
+  const percentile90 = meaningfulRates.length ? meaningfulRates[Math.max(0, Math.ceil(meaningfulRates.length * .9) - 1)]! : 1;
+  const maximum = Math.max(0, ...slots.map((slot) => slot?.peak ?? 0));
+
+  return slots.map((slot, index) => {
+    if (!slot) return { peak: null, closing: null, rows: 0, ratePerMinute: null, tone: 'stable', color: '#52636a' };
+    const rate = rates[index] ?? null;
+    const stable = rate === null || Math.abs(rate) < 1;
+    const normalizedRate = rate === null ? null : Math.max(-1, Math.min(1, rate / percentile90));
+    return {
+      peak: slot.peak,
+      closing: slot.closing,
+      rows: slot.peak <= 0 || maximum <= 0 ? 0 : Math.max(1, Math.ceil(slot.peak / maximum * chartRows)),
+      ratePerMinute: rate,
+      tone: stable ? 'stable' : rate > 0 ? 'growing' : 'shrinking',
+      color: normalizedRate === null ? '#52636a' : interpolateHeatColor(normalizedRate),
+    };
+  });
+}
+
+function axisTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+}
+
+function QueueChart({ history }: { history: HistoryResponse | null }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [columnCount, setColumnCount] = useState(64);
+
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element || typeof ResizeObserver === 'undefined') return;
+    const update = (width: number) => setColumnCount(Math.max(24, Math.min(96, Math.floor(width / 10))));
+    update(element.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => update(entries[0]?.contentRect.width ?? element.clientWidth));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  const columns = useMemo(() => history ? buildAsciiColumns(history.points, history.from, history.to, columnCount) : [], [columnCount, history]);
+  const maximum = Math.max(0, ...columns.map((column) => column.peak ?? 0));
+  const hasHistory = history && history.points.length > 0;
 
   return (
-    <div className="chart-wrap">
-      <svg className="chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`Queue history, maximum ${number.format(maximum)} tiles`} preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="queue-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="var(--cyan)" stopOpacity=".32" />
-            <stop offset="1" stopColor="var(--cyan)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-        {[0, 1, 2, 3, 4].map((row) => <line key={row} className="chart-grid" x1="0" x2={width} y1={row * height / 4} y2={row * height / 4} />)}
-        <path d={area} fill="url(#queue-fill)" />
-        <path d={line} className="chart-line" vectorEffect="non-scaling-stroke" />
-      </svg>
-      <span className="chart-max">{number.format(maximum)}</span>
-      <span className="chart-zero">0</span>
+    <div className="terminal-chart">
+      <div className="chart-rail chart-rail-top"><span>MAX {number.format(maximum)}</span><i /></div>
+      <div ref={chartRef} className="ascii-plot" role="img" aria-label={hasHistory ? `Queue history over ${history.days} days, maximum ${number.format(maximum)} tiles` : 'Queue history has no samples yet'}>
+        {hasHistory ? <div className="ascii-columns" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }} aria-hidden="true">
+          {columns.map((column, index) => <span key={index} className={`ascii-column ${column.tone}`} style={{ '--heat-color': column.color } as CSSProperties}>
+            {Array.from({ length: column.rows }, (_, row) => <i key={row}>█</i>)}
+          </span>)}
+        </div> : <div className="chart-empty">History begins after the first successful poll.</div>}
+      </div>
+      <div className="chart-rail chart-rail-bottom"><span>0</span><i /></div>
+      <div className="chart-meta">
+        <span>{history ? axisTime(history.from) : '—'}</span>
+        <span className="chart-legend" aria-label="Heat scale from faster queue shrink through stable to faster queue growth">
+          <i className="heat-scale" />
+          <span className="heat-labels"><b>fast shrink</b><b>stable</b><b>fast growth</b></span>
+          <em>queue change · tiles/min</em>
+        </span>
+        <span>{history ? axisTime(history.to) : '—'}</span>
+      </div>
     </div>
   );
 }
@@ -199,9 +322,10 @@ export function Counter({ label, value, accent, rolling = false, showDirection =
 
 export function App() {
   const [latest, setLatest] = useState<LatestResponse | null>(null);
-  const [history, setHistory] = useState<HistoryPoint[]>([]);
-  const [rangeHours, setRangeHours] = useState(1);
+  const [history, setHistory] = useState<HistoryResponse | null>(null);
+  const [rangeDays, setRangeDays] = useState(7);
   const [requestError, setRequestError] = useState<string | null>(null);
+  const hasLatest = latest !== null;
 
   const loadLatest = useCallback(async () => {
     try {
@@ -214,12 +338,12 @@ export function App() {
 
   const loadHistory = useCallback(async () => {
     try {
-      const response = await getJson<HistoryResponse>(`/api/stats/history?hours=${rangeHours}`);
-      setHistory(response.points);
+      const requestedDays = Math.min(rangeDays, latest?.connection.historyDays ?? rangeDays);
+      setHistory(await getJson<HistoryResponse>(`/api/stats/history?days=${requestedDays}`));
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : 'History is unavailable');
     }
-  }, [rangeHours]);
+  }, [latest?.connection.historyDays, rangeDays]);
 
   useEffect(() => {
     void loadLatest();
@@ -228,16 +352,31 @@ export function App() {
   }, [loadLatest, latest?.connection.pollIntervalSeconds]);
 
   useEffect(() => {
+    if (!hasLatest) return;
     void loadHistory();
     const timer = window.setInterval(() => void loadHistory(), (latest?.connection.pollIntervalSeconds ?? 15) * 1000);
     return () => window.clearInterval(timer);
-  }, [loadHistory, latest?.connection.pollIntervalSeconds]);
+  }, [hasLatest, loadHistory, latest?.connection.pollIntervalSeconds]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void loadLatest();
+      if (hasLatest) void loadHistory();
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => document.removeEventListener('visibilitychange', refreshWhenVisible);
+  }, [hasLatest, loadHistory, loadLatest]);
 
   const sample = latest?.sample ?? null;
   const status = latest?.connection.state ?? 'starting';
   const statusError = requestError ?? latest?.connection.error;
-  const retention = latest?.connection.historyHours ?? 24;
+  const retention = latest?.connection.historyDays ?? 30;
   const ranges = useMemo(() => buildHistoryRanges(retention), [retention]);
+
+  useEffect(() => {
+    if (rangeDays > retention) setRangeDays(Math.min(7, retention));
+  }, [rangeDays, retention]);
 
   return (
     <main className="shell">
@@ -270,47 +409,32 @@ export function App() {
             <h2 id="queue-heading">Total queued tiles</h2>
             <div className="queue-readout">
               <TotalQueueNumber value={sample?.queue.total ?? null} observationKey={sample?.observedAt} />
-              <div className={`delta ${(latest?.queueDelta ?? 0) > 0 ? 'up' : 'down'}`}>
-                {latest?.queueDelta == null ? 'awaiting trend' : `${latest.queueDelta > 0 ? '+' : ''}${number.format(latest.queueDelta)} since last poll`}
-              </div>
+              <QueueDelta value={sample?.queue.total ?? null} observationKey={sample?.observedAt} />
             </div>
           </div>
           <div className="queue-parts">
             <Counter label="base tile queue" value={sample?.queue.tileUpdates ?? null} accent="cyan" rolling showDirection observationKey={sample?.observedAt} />
             <Counter label="zoom tile queue" value={sample?.queue.zoomOut ?? null} accent="amber" rolling showDirection observationKey={sample?.observedAt} />
-            <Counter label="active render jobs" value={sample?.activeRenderJobs.length ?? 0} />
+            <Counter label="active render jobs" value={sample?.activeRenderJobCount ?? 0} />
+            <div className="counter">
+              <span>cache hit rate</span>
+              <div className="counter-value">
+                <strong>{sample?.cacheHitRate == null ? '—' : `${sample.cacheHitRate.toFixed(2)}%`}</strong>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
-      <section className="panel history-panel" aria-labelledby="history-heading">
-        <div className="panel-heading">
+      <section className="history-panel" aria-labelledby="history-heading">
+        <div className="history-heading">
           <div><span className="section-kicker">QUEUE HISTORY</span><h2 id="history-heading">Backlog over time</h2></div>
           <div className="range-tabs" aria-label="History range">
-            {ranges.map((range) => <button key={range.label} className={rangeHours === range.hours ? 'active' : ''} aria-pressed={rangeHours === range.hours} onClick={() => setRangeHours(range.hours)}>{range.label}</button>)}
+            {ranges.map((range) => <button key={range.label} className={rangeDays === range.days ? 'active' : ''} aria-label={range.label} aria-pressed={rangeDays === range.days} onClick={() => setRangeDays(range.days)}>{range.label}</button>)}
           </div>
         </div>
-        <QueueChart points={history} />
+        <QueueChart history={history} />
       </section>
-
-      <section className="panel runtime-panel" aria-labelledby="runtime-heading">
-        <div className="panel-heading"><div><span className="section-kicker">RUNTIME</span><h2 id="runtime-heading">Renderer state</h2></div></div>
-        <dl className="runtime-list">
-          <div><dt>Cache hit rate</dt><dd>{sample?.cacheHitRate == null ? '—' : `${sample.cacheHitRate.toFixed(2)}%`}</dd></div>
-          <div><dt>Full / radius</dt><dd className={sample?.pause.fullRadius ? 'fault' : 'ok'}>{sample?.pause.fullRadius ? 'PAUSED' : 'ENABLED'}</dd></div>
-          <div><dt>Tile updates</dt><dd className={sample?.pause.updates ? 'fault' : 'ok'}>{sample?.pause.updates ? 'PAUSED' : 'ENABLED'}</dd></div>
-          <div><dt>Zoom-out</dt><dd className={sample?.pause.zoomOut ? 'fault' : 'ok'}>{sample?.pause.zoomOut ? 'PAUSED' : 'ENABLED'}</dd></div>
-        </dl>
-        <h3>Active jobs</h3>
-        <div className="job-list">{sample?.activeRenderJobs.length ? sample.activeRenderJobs.map((job) => <code key={job}>{job}</code>) : <span>none reported</span>}</div>
-      </section>
-
-      <details className="raw-panel">
-        <summary>Raw RCON response <span>for parser troubleshooting</span></summary>
-        <pre>{sample?.raw ?? 'No successful response received.'}</pre>
-      </details>
-
-      <footer><span>read-only RCON monitor</span><span>poll {latest?.connection.pollIntervalSeconds ?? 15}s · memory {retention}h</span></footer>
     </main>
   );
 }
