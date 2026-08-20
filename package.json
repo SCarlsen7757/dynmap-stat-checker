@@ -15,7 +15,8 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "test": "vitest run --configLoader runner",
     "test:watch": "vitest --configLoader runner",
-    "test:e2e": "npm run build && playwright test"
+    "test:e2e": "npm run build && playwright test",
+    "test:full-stack": "node e2e/run-full-stack.mjs"
   },
   "dependencies": {
     "@fastify/static": "^10.1.3",

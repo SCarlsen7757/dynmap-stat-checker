@@ -1,0 +1,46 @@
+name: dynmap-stat-checker-integration
+
+services:
+  dynmap-stats:
+    build: .
+    environment:
+      RCON_HOST: fake-rcon
+      RCON_PORT: 25575
+      RCON_PASSWORD: integration-rcon-password
+      DATABASE_URL: postgresql://dynmap:integration-database-password@postgres:5432/dynmap
+      POLL_INTERVAL_SECONDS: 5
+      HISTORY_DAYS: 30
+      RCON_TIMEOUT_MS: 3000
+      PORT: 3000
+    ports:
+      - "127.0.0.1:33000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fake-rcon:
+        condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dynmap
+      POSTGRES_USER: dynmap
+      POSTGRES_PASSWORD: integration-database-password
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dynmap -d dynmap"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  fake-rcon:
+    image: node:22-alpine
+    environment:
+      RCON_PASSWORD: integration-rcon-password
+    command: ["node", "/test/fake-rcon-server.mjs"]
+    volumes:
+      - ./e2e/fake-rcon-server.mjs:/test/fake-rcon-server.mjs:ro
