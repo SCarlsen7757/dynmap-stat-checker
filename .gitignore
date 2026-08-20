@@ -3,6 +3,15 @@ dist/
 coverage/
 playwright-report/
 test-results/
+
+# Local environment files (keep the committed template)
 .env
+.env.*
+!.env.example
+
+# Machine-local tool settings
+.claude/settings.local.json
+
 *.log
 .DS_Store
+Thumbs.db
