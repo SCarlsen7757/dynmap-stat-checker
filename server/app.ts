@@ -21,12 +21,12 @@ export async function createApp({ config, stats, frontendPath }: AppDependencies
   });
   app.get('/api/stats/latest', async () => stats.getLatest());
   app.get('/api/stats/history', async (request, reply) => {
-    const raw = (request.query as { hours?: string }).hours;
-    const hours = raw === undefined ? Math.min(24, config.historyHours) : Number(raw);
-    if (!Number.isFinite(hours) || hours <= 0 || hours > config.historyHours) {
-      return reply.code(400).send({ error: `hours must be greater than 0 and at most ${config.historyHours}` });
+    const raw = (request.query as { days?: string }).days;
+    const days = Number(raw);
+    if (!Number.isFinite(days) || days <= 0 || days > config.historyDays) {
+      return reply.code(400).send({ error: `days must be greater than 0 and at most ${config.historyDays}` });
     }
-    return stats.getHistory(hours);
+    return stats.getHistory(days);
   });
 
   const clientRoot = frontendPath ?? resolve(process.cwd(), 'dist/client');

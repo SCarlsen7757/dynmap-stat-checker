@@ -6,43 +6,17 @@ export interface QueueStats {
   total: number;
 }
 
-export interface RenderCounters {
-  processed: number;
-  rendered: number;
-  updated: number;
-  transparent: number;
-}
-
-export interface MapStats extends RenderCounters {
-  id: string;
-}
-
-export interface ChunkStats {
-  category: string;
-  count: number;
-  millisecondsPerChunk: number;
-}
-
-export interface PauseState {
-  fullRadius: boolean;
-  updates: boolean;
-  zoomOut: boolean;
-}
-
 export interface DynmapSample {
   observedAt: string;
   queue: QueueStats;
-  maps: MapStats[];
-  totals: RenderCounters | null;
-  activeRenderJobs: string[];
-  pause: PauseState;
+  activeRenderJobCount: number;
   cacheHitRate: number | null;
-  chunks: ChunkStats[];
-  raw: string;
 }
 
-export interface HistoryPoint extends QueueStats {
+export interface HistoryPoint {
   observedAt: string;
+  total: number;
+  maxTotal: number;
 }
 
 export interface ConnectionStatus {
@@ -51,16 +25,18 @@ export interface ConnectionStatus {
   lastSuccessAt: string | null;
   error: string | null;
   pollIntervalSeconds: number;
-  historyHours: number;
+  historyDays: number;
 }
 
 export interface LatestResponse {
   connection: ConnectionStatus;
   sample: DynmapSample | null;
-  queueDelta: number | null;
 }
 
 export interface HistoryResponse {
-  hours: number;
+  days: number;
+  from: string;
+  to: string;
+  resolutionSeconds: number;
   points: HistoryPoint[];
 }

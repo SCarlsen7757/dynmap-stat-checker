@@ -13,31 +13,28 @@ Chunk Loading Statistics:
   Chunks processed: Load Required: count=18, 2.41 msec/chunk`;
 
 describe('parseDynmapStats', () => {
-  it('parses the complete modern response', () => {
+  it('parses the dashboard values from a modern response', () => {
     const sample = parseDynmapStats(currentResponse, '2026-01-01T00:00:00.000Z');
     expect(sample.queue).toEqual({ tileUpdates: 121, zoomOut: 22276, total: 22397 });
-    expect(sample.maps).toHaveLength(2);
-    expect(sample.totals?.processed).toBe(140);
-    expect(sample.activeRenderJobs).toEqual(['world', 'world_nether']);
+    expect(sample.activeRenderJobCount).toBe(2);
     expect(sample.cacheHitRate).toBe(64.15);
-    expect(sample.chunks[1]).toEqual({ category: 'Load Required', count: 18, millisecondsPerChunk: 2.41 });
+    expect(sample.observedAt).toBe('2026-01-01T00:00:00.000Z');
   });
 
-  it('supports legacy single-value queues, formatting codes, log prefixes, and pause state', () => {
+  it('supports legacy single-value queues, formatting codes, and log prefixes', () => {
     const sample = parseDynmapStats(`[12:00:00 INFO]: §aFull/Radius renders are PAUSED
 [12:00:00 INFO]: Update renders are PAUSED
 [12:00:00 INFO]: Zoom-out renders are PAUSED
 [12:00:00 INFO]: Triggered update queue size: 42
 [12:00:00 INFO]: Active render jobs:`);
     expect(sample.queue).toEqual({ tileUpdates: 42, zoomOut: 0, total: 42 });
-    expect(sample.pause).toEqual({ fullRadius: true, updates: true, zoomOut: true });
-    expect(sample.activeRenderJobs).toEqual([]);
+    expect(sample.activeRenderJobCount).toBe(0);
   });
 
-  it('preserves the raw multi-packet-sized response', () => {
+  it('parses dashboard values from a multi-packet-sized response', () => {
     const raw = `${currentResponse}\n${'unknown diagnostic line\n'.repeat(300)}`;
     expect(raw.length).toBeGreaterThan(4096);
-    expect(parseDynmapStats(raw).raw).toBe(raw);
+    expect(parseDynmapStats(raw).queue.total).toBe(22397);
   });
 
   it('finds the cache hit rate when RCON returns the response on one line', () => {

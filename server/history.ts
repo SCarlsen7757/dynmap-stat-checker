@@ -1,30 +1,14 @@
-import type { HistoryPoint } from '../shared/types.js';
+import type { HistoryPoint, QueueStats } from '../shared/types.js';
 
-export class HistoryStore {
-  private readonly points: HistoryPoint[] = [];
+export type QueueSample = QueueStats & { observedAt: string };
 
-  constructor(private readonly retentionHours: number) {}
+export interface QueueHistoryStore {
+  initialize(): Promise<void>;
+  add(sample: QueueSample): Promise<void>;
+  get(days: number, now?: number): Promise<HistoryPoint[]>;
+  close(): Promise<void>;
+}
 
-  add(point: HistoryPoint): void {
-    this.points.push(point);
-    this.prune(Date.parse(point.observedAt));
-  }
-
-  get(hours: number, now = Date.now()): HistoryPoint[] {
-    const cutoff = now - hours * 60 * 60 * 1000;
-    return this.points.filter((point) => Date.parse(point.observedAt) >= cutoff);
-  }
-
-  latestPair(): [HistoryPoint | undefined, HistoryPoint | undefined] {
-    return [this.points.at(-2), this.points.at(-1)];
-  }
-
-  private prune(now: number): void {
-    const cutoff = now - this.retentionHours * 60 * 60 * 1000;
-    let removeCount = 0;
-    while (removeCount < this.points.length && Date.parse(this.points[removeCount]!.observedAt) < cutoff) {
-      removeCount += 1;
-    }
-    if (removeCount) this.points.splice(0, removeCount);
-  }
+export function historyResolutionSeconds(days: number): number {
+  return days <= 2 ? 5 * 60 : 60 * 60;
 }

@@ -5,7 +5,8 @@ import type { StatsService } from './stats-service.js';
 
 const config: AppConfig = {
   rconHost: 'minecraft', rconPort: 25575, rconPassword: 'never-return-this',
-  pollIntervalSeconds: 15, historyHours: 24, rconTimeoutMs: 5000, port: 3000,
+  databaseUrl: 'postgresql://dynmap:secret@postgres/dynmap',
+  pollIntervalSeconds: 15, historyDays: 30, rconTimeoutMs: 5000, port: 3000,
 };
 const apps: Awaited<ReturnType<typeof createApp>>[] = [];
 
@@ -14,8 +15,8 @@ afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close(
 function fakeStats(ready = true) {
   return {
     isReady: vi.fn(() => ready),
-    getLatest: vi.fn(() => ({ connection: { state: 'starting', lastAttemptAt: null, lastSuccessAt: null, error: null, pollIntervalSeconds: 15, historyHours: 24 }, sample: null, queueDelta: null })),
-    getHistory: vi.fn((hours: number) => ({ hours, points: [] })),
+    getLatest: vi.fn(() => ({ connection: { state: 'starting', lastAttemptAt: null, lastSuccessAt: null, error: null, pollIntervalSeconds: 15, historyDays: 30 }, sample: null })),
+    getHistory: vi.fn((days: number) => ({ days, from: '', to: '', resolutionSeconds: days <= 2 ? 300 : 3600, points: [] })),
   } as unknown as StatsService;
 }
 
@@ -28,9 +29,10 @@ describe('HTTP API', () => {
 
   it('validates history range', async () => {
     const app = await createApp({ config, stats: fakeStats() }); apps.push(app);
-    expect((await app.inject({ url: '/api/stats/history?hours=0.25' })).statusCode).toBe(200);
-    expect((await app.inject({ url: '/api/stats/history?hours=6' })).statusCode).toBe(200);
-    expect((await app.inject({ url: '/api/stats/history?hours=25' })).statusCode).toBe(400);
+    expect((await app.inject({ url: '/api/stats/history?days=1' })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/api/stats/history?days=30' })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/api/stats/history?days=31' })).statusCode).toBe(400);
+    expect((await app.inject({ url: '/api/stats/history?hours=7' })).statusCode).toBe(400);
   });
 
   it('never exposes the configured password', async () => {

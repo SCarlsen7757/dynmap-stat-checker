@@ -1,5 +1,7 @@
+import 'dotenv/config.js';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
+import { PostgresHistoryStore } from './postgres-history.js';
 import { MinecraftRconClient } from './rcon.js';
 import { StatsService } from './stats-service.js';
 
@@ -10,9 +12,11 @@ const client = new MinecraftRconClient({
   password: config.rconPassword,
   timeoutMs: config.rconTimeoutMs,
 });
-const stats = new StatsService(client, {
+const history = new PostgresHistoryStore(config.databaseUrl, config.historyDays);
+await history.initialize();
+const stats = new StatsService(client, history, {
   pollIntervalSeconds: config.pollIntervalSeconds,
-  historyHours: config.historyHours,
+  historyDays: config.historyDays,
   password: config.rconPassword,
 });
 const app = await createApp({ config, stats });

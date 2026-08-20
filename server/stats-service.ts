@@ -1,27 +1,26 @@
 import type { ConnectionStatus, DynmapSample, HistoryResponse, LatestResponse } from '../shared/types.js';
-import { HistoryStore } from './history.js';
+import { historyResolutionSeconds } from './history.js';
+import type { QueueHistoryStore } from './history.js';
 import { parseDynmapStats } from './parser.js';
 import type { StatsClient } from './rcon.js';
 
 export interface StatsServiceOptions {
   pollIntervalSeconds: number;
-  historyHours: number;
+  historyDays: number;
   password: string;
 }
 
 export class StatsService {
-  private readonly history: HistoryStore;
   private latest: DynmapSample | null = null;
   private status: ConnectionStatus;
   private timer: NodeJS.Timeout | null = null;
   private stopped = true;
   private pollPromise: Promise<void> | null = null;
 
-  constructor(private readonly client: StatsClient, private readonly options: StatsServiceOptions) {
-    this.history = new HistoryStore(options.historyHours);
+  constructor(private readonly client: StatsClient, private readonly history: QueueHistoryStore, private readonly options: StatsServiceOptions) {
     this.status = {
       state: 'starting', lastAttemptAt: null, lastSuccessAt: null, error: null,
-      pollIntervalSeconds: options.pollIntervalSeconds, historyHours: options.historyHours,
+      pollIntervalSeconds: options.pollIntervalSeconds, historyDays: options.historyDays,
     };
   }
 
@@ -36,7 +35,7 @@ export class StatsService {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     await this.pollPromise?.catch(() => undefined);
-    await this.client.disconnect();
+    await Promise.all([this.client.disconnect(), this.history.close()]);
   }
 
   async pollNow(): Promise<void> {
@@ -46,16 +45,20 @@ export class StatsService {
   }
 
   getLatest(): LatestResponse {
-    const [previous, current] = this.history.latestPair();
     return {
       connection: { ...this.status },
       sample: this.latest,
-      queueDelta: previous && current ? current.total - previous.total : null,
     };
   }
 
-  getHistory(hours: number): HistoryResponse {
-    return { hours, points: this.history.get(hours) };
+  async getHistory(days: number, now = Date.now()): Promise<HistoryResponse> {
+    return {
+      days,
+      from: new Date(now - days * 24 * 60 * 60 * 1000).toISOString(),
+      to: new Date(now).toISOString(),
+      resolutionSeconds: historyResolutionSeconds(days),
+      points: await this.history.get(days, now),
+    };
   }
 
   isReady(now = Date.now()): boolean {
@@ -77,8 +80,8 @@ export class StatsService {
     try {
       const raw = await this.client.executeStats();
       const sample = parseDynmapStats(raw, new Date().toISOString());
+      await this.history.add({ observedAt: sample.observedAt, ...sample.queue });
       this.latest = sample;
-      this.history.add({ observedAt: sample.observedAt, ...sample.queue });
       this.status = { ...this.status, state: 'connected', lastSuccessAt: sample.observedAt, error: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown RCON failure';
