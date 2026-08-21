@@ -4,7 +4,8 @@ import type { DynmapSample, HistoryPoint, HistoryResponse, LatestResponse } from
 
 const number = new Intl.NumberFormat('da-DK');
 const historyAnchors = [1, 2, 7, 14, 30];
-const chartRows = 10;
+const maximumChartRows = 48;
+const chartGlyphHeightFactor = 1.1;
 
 export function buildHistoryRanges(retentionDays: number) {
   const values = [...historyAnchors.filter((days) => days <= retentionDays), retentionDays];
@@ -211,8 +212,15 @@ export function interpolateHeatColor(value: number): string {
   return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
 }
 
-export function buildAsciiColumns(points: HistoryPoint[], from: string, to: string, requestedCount: number): AsciiColumn[] {
+export function calculateChartRowCount(height: number, glyphSize: number): number {
+  const safeHeight = Number.isFinite(height) ? Math.max(0, height) : 0;
+  const safeGlyphSize = Number.isFinite(glyphSize) ? Math.max(1, glyphSize) : 1;
+  return Math.max(1, Math.min(maximumChartRows, Math.floor(safeHeight / (safeGlyphSize * chartGlyphHeightFactor))));
+}
+
+export function buildAsciiColumns(points: HistoryPoint[], from: string, to: string, requestedCount: number, requestedRows: number): AsciiColumn[] {
   const columnCount = Math.max(24, Math.min(96, Math.round(requestedCount)));
+  const rowCount = Math.max(1, Math.min(maximumChartRows, Math.round(requestedRows)));
   const fromMs = Date.parse(from);
   const toMs = Date.parse(to);
   const duration = Math.max(1, toMs - fromMs);
@@ -253,7 +261,7 @@ export function buildAsciiColumns(points: HistoryPoint[], from: string, to: stri
     return {
       peak: slot.peak,
       closing: slot.closing,
-      rows: slot.peak <= 0 || maximum <= 0 ? 0 : Math.max(1, Math.ceil(slot.peak / maximum * chartRows)),
+      rows: slot.peak <= 0 || maximum <= 0 ? 0 : Math.max(1, Math.ceil(slot.peak / maximum * rowCount)),
       ratePerMinute: rate,
       tone: stable ? 'stable' : rate > 0 ? 'growing' : 'shrinking',
       color: normalizedRate === null ? '#52636a' : interpolateHeatColor(normalizedRate),
@@ -267,19 +275,30 @@ function axisTime(value: string): string {
 
 function QueueChart({ history }: { history: HistoryResponse | null }) {
   const chartRef = useRef<HTMLDivElement>(null);
-  const [columnCount, setColumnCount] = useState(64);
+  const [geometry, setGeometry] = useState({ columns: 64, rows: 10 });
 
   useEffect(() => {
     const element = chartRef.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
-    const update = (width: number) => setColumnCount(Math.max(24, Math.min(96, Math.floor(width / 10))));
-    update(element.getBoundingClientRect().width);
-    const observer = new ResizeObserver((entries) => update(entries[0]?.contentRect.width ?? element.clientWidth));
+    const update = (width: number, height: number) => {
+      const glyphSize = Number.parseFloat(window.getComputedStyle(element).fontSize);
+      const next = {
+        columns: Math.max(24, Math.min(96, Math.floor(width / 10))),
+        rows: calculateChartRowCount(height, glyphSize),
+      };
+      setGeometry((current) => current.columns === next.columns && current.rows === next.rows ? current : next);
+    };
+    const bounds = element.getBoundingClientRect();
+    update(bounds.width, bounds.height);
+    const observer = new ResizeObserver((entries) => {
+      const size = entries[0]?.contentRect;
+      update(size?.width ?? element.clientWidth, size?.height ?? element.clientHeight);
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
-  const columns = useMemo(() => history ? buildAsciiColumns(history.points, history.from, history.to, columnCount) : [], [columnCount, history]);
+  const columns = useMemo(() => history ? buildAsciiColumns(history.points, history.from, history.to, geometry.columns, geometry.rows) : [], [geometry, history]);
   const maximum = Math.max(0, ...columns.map((column) => column.peak ?? 0));
   const hasHistory = history && history.points.length > 0;
 
@@ -287,7 +306,7 @@ function QueueChart({ history }: { history: HistoryResponse | null }) {
     <div className="terminal-chart">
       <div className="chart-rail chart-rail-top"><span>MAX {number.format(maximum)}</span><i /></div>
       <div ref={chartRef} className="ascii-plot" role="img" aria-label={hasHistory ? `Queue history over ${history.days} days, maximum ${number.format(maximum)} tiles` : 'Queue history has no samples yet'}>
-        {hasHistory ? <div className="ascii-columns" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }} aria-hidden="true">
+        {hasHistory ? <div className="ascii-columns" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`, '--chart-rows': geometry.rows } as CSSProperties} aria-hidden="true">
           {columns.map((column, index) => <span key={index} className={`ascii-column ${column.tone}`} style={{ '--heat-color': column.color } as CSSProperties}>
             {Array.from({ length: column.rows }, (_, row) => <i key={row}>█</i>)}
           </span>)}
