@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LatestResponse } from '../../shared/types';
-import { App, buildAsciiColumns, buildHistoryRanges, Counter, interpolateHeatColor, QueueDelta, RollingNumber } from './App';
+import { App, buildAsciiColumns, buildHistoryRanges, calculateChartRowCount, Counter, interpolateHeatColor, QueueDelta, RollingNumber } from './App';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -126,7 +126,7 @@ describe('buildAsciiColumns', () => {
     const columns = buildAsciiColumns([
       historyPoint('2026-01-01T00:10:00.000Z', 10, 20),
       historyPoint('2026-01-01T00:20:00.000Z', 5, 90),
-    ], from, to, 24);
+    ], from, to, 24, 10);
     expect(columns[0]).toMatchObject({ peak: 90, closing: 5, rows: 10 });
   });
 
@@ -134,7 +134,7 @@ describe('buildAsciiColumns', () => {
     const columns = buildAsciiColumns([
       historyPoint('2026-01-01T00:10:00.000Z', 10),
       historyPoint('2026-01-01T03:10:00.000Z', 30),
-    ], from, to, 24);
+    ], from, to, 24, 10);
     expect(columns[1]?.peak).toBeNull();
     expect(columns[3]).toMatchObject({ ratePerMinute: null, tone: 'stable' });
   });
@@ -144,11 +144,20 @@ describe('buildAsciiColumns', () => {
       historyPoint('2026-01-01T00:10:00.000Z', 10),
       historyPoint('2026-01-01T01:10:00.000Z', 130),
       historyPoint('2026-01-01T02:10:00.000Z', 10),
-    ], from, to, 24);
+    ], from, to, 24, 10);
     expect(columns[1]?.tone).toBe('growing');
     expect(columns[2]?.tone).toBe('shrinking');
     expect(columns[1]?.color).not.toBe(columns[2]?.color);
     expect(columns[0]?.color).toBe('#52636a');
+  });
+
+  it('scales bar heights to the requested row count', () => {
+    const columns = buildAsciiColumns([
+      historyPoint('2026-01-01T00:10:00.000Z', 25),
+      historyPoint('2026-01-01T01:10:00.000Z', 100),
+    ], from, to, 24, 20);
+    expect(columns[0]?.rows).toBe(5);
+    expect(columns[1]?.rows).toBe(20);
   });
 
   it('interpolates distinct colors across the full signed rate scale', () => {
@@ -157,5 +166,17 @@ describe('buildAsciiColumns', () => {
     expect(interpolateHeatColor(-1)).toBe('#35ef84');
     expect(interpolateHeatColor(0)).toBe('#63d8e8');
     expect(interpolateHeatColor(1)).toBe('#ff4964');
+  });
+});
+
+describe('calculateChartRowCount', () => {
+  it('uses more characters when the plot is taller', () => {
+    expect(calculateChartRowCount(160, 16)).toBe(9);
+    expect(calculateChartRowCount(320, 16)).toBe(18);
+  });
+
+  it('keeps the row count within safe rendering limits', () => {
+    expect(calculateChartRowCount(0, 16)).toBe(1);
+    expect(calculateChartRowCount(10_000, 16)).toBe(48);
   });
 });
