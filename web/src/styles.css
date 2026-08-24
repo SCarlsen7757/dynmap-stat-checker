@@ -130,8 +130,12 @@ h2 { margin: 3px 0 0; font-family: "Bahnschrift Condensed", "Arial Narrow", sans
 .chart-rail-top i::after, .chart-rail-bottom i::after { content: ""; display: block; width: .55rem; height: .55rem; margin-left: auto; border-right: 1px solid var(--line); }
 .chart-rail-top i::after { border-top: 1px solid var(--line); transform: translateY(-.5rem); }
 .chart-rail-bottom i::after { border-bottom: 1px solid var(--line); }
-.ascii-plot { display: flex; flex: 1 1 auto; min-height: 11rem; padding: .45rem .8rem .25rem; overflow: hidden; font-size: clamp(.72rem, 1vw, 1.05rem); }
-.ascii-columns { display: grid; width: 100%; min-width: 0; align-items: end; gap: 0; }
+.ascii-plot { --guide-gutter: clamp(3.4rem, 6vw, 4.8rem); position: relative; display: flex; flex: 1 1 auto; min-height: 11rem; padding: .45rem .8rem .25rem calc(var(--guide-gutter) + .8rem); overflow: hidden; font-size: clamp(.72rem, 1vw, 1.05rem); }
+.chart-guides { position: absolute; inset: .45rem .8rem .25rem .8rem; pointer-events: none; }
+.chart-guide { position: absolute; right: 0; bottom: var(--guide-position); left: 0; display: flex; align-items: center; gap: .5rem; transform: translateY(50%); }
+.chart-guide b { flex: 0 0 calc(var(--guide-gutter) - .5rem); overflow: hidden; color: var(--muted); font-size: .56rem; font-weight: 400; letter-spacing: .06em; text-align: right; text-overflow: ellipsis; }
+.chart-guide i { flex: 1 1 auto; height: 1px; opacity: .72; background: repeating-linear-gradient(90deg, var(--line) 0 .28rem, transparent .28rem .58rem); }
+.ascii-columns { position: relative; display: grid; width: 100%; min-width: 0; align-items: end; gap: 0; }
 .ascii-column { display: flex; min-width: 0; align-items: stretch; flex-direction: column-reverse; align-self: stretch; justify-content: flex-start; overflow: hidden; color: var(--heat-color, var(--muted)); line-height: 1; text-align: center; text-shadow: 0 0 .38rem color-mix(in srgb, currentColor 28%, transparent); }
 .ascii-column i { display: grid; width: 100%; height: calc(100% / var(--chart-rows, 10)); place-items: center; overflow: hidden; font-size: inherit; font-style: normal; line-height: 1; transform: scale(1.22, 1.08); }
 .chart-empty { display: grid; width: 100%; place-items: center; color: var(--muted); font-size: .69rem; letter-spacing: .04em; }

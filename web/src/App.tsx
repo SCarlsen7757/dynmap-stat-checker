@@ -6,6 +6,7 @@ const number = new Intl.NumberFormat('da-DK');
 const historyAnchors = [1, 2, 7, 14, 30];
 const maximumChartRows = 48;
 const chartGlyphHeightFactor = 1.1;
+const chartBandCount = 4;
 
 export function buildHistoryRanges(retentionDays: number) {
   const values = [...historyAnchors.filter((days) => days <= retentionDays), retentionDays];
@@ -218,6 +219,22 @@ export function calculateChartRowCount(height: number, glyphSize: number): numbe
   return Math.max(1, Math.min(maximumChartRows, Math.floor(safeHeight / (safeGlyphSize * chartGlyphHeightFactor))));
 }
 
+export type ChartScale = { ceiling: number; guides: number[] };
+
+export function calculateChartScale(maximum: number): ChartScale {
+  const safeMaximum = Number.isFinite(maximum) ? Math.max(0, maximum) : 0;
+  if (safeMaximum === 0) return { ceiling: 0, guides: [] };
+
+  const rawInterval = safeMaximum / chartBandCount;
+  const magnitude = 10 ** Math.floor(Math.log10(rawInterval));
+  const normalized = rawInterval / magnitude;
+  const multiplier = [1, 2, 2.5, 5, 10].find((candidate) => candidate >= normalized) ?? 10;
+  const interval = Math.max(1, multiplier * magnitude);
+  const ceiling = Number((interval * chartBandCount).toPrecision(12));
+  const guides = Array.from({ length: chartBandCount - 1 }, (_, index) => Number((interval * (index + 1)).toPrecision(12)));
+  return { ceiling, guides };
+}
+
 export function buildAsciiColumns(points: HistoryPoint[], from: string, to: string, requestedCount: number, requestedRows: number): AsciiColumn[] {
   const columnCount = Math.max(24, Math.min(96, Math.round(requestedCount)));
   const rowCount = Math.max(1, Math.min(maximumChartRows, Math.round(requestedRows)));
@@ -252,6 +269,7 @@ export function buildAsciiColumns(points: HistoryPoint[], from: string, to: stri
   const meaningfulRates = rates.filter((rate): rate is number => rate !== null && rate !== 0).map(Math.abs).sort((left, right) => left - right);
   const percentile90 = meaningfulRates.length ? meaningfulRates[Math.max(0, Math.ceil(meaningfulRates.length * .9) - 1)]! : 1;
   const maximum = Math.max(0, ...slots.map((slot) => slot?.peak ?? 0));
+  const scale = calculateChartScale(maximum);
 
   return slots.map((slot, index) => {
     if (!slot) return { peak: null, closing: null, rows: 0, ratePerMinute: null, tone: 'stable', color: '#52636a' };
@@ -261,7 +279,7 @@ export function buildAsciiColumns(points: HistoryPoint[], from: string, to: stri
     return {
       peak: slot.peak,
       closing: slot.closing,
-      rows: slot.peak <= 0 || maximum <= 0 ? 0 : Math.max(1, Math.ceil(slot.peak / maximum * rowCount)),
+      rows: slot.peak <= 0 || scale.ceiling <= 0 ? 0 : Math.max(1, Math.ceil(slot.peak / scale.ceiling * rowCount)),
       ratePerMinute: rate,
       tone: stable ? 'stable' : rate > 0 ? 'growing' : 'shrinking',
       color: normalizedRate === null ? '#52636a' : interpolateHeatColor(normalizedRate),
@@ -300,12 +318,18 @@ function QueueChart({ history }: { history: HistoryResponse | null }) {
 
   const columns = useMemo(() => history ? buildAsciiColumns(history.points, history.from, history.to, geometry.columns, geometry.rows) : [], [geometry, history]);
   const maximum = Math.max(0, ...columns.map((column) => column.peak ?? 0));
+  const scale = calculateChartScale(maximum);
   const hasHistory = history && history.points.length > 0;
 
   return (
     <div className="terminal-chart">
-      <div className="chart-rail chart-rail-top"><span>MAX {number.format(maximum)}</span><i /></div>
-      <div ref={chartRef} className="ascii-plot" role="img" aria-label={hasHistory ? `Queue history over ${history.days} days, maximum ${number.format(maximum)} tiles` : 'Queue history has no samples yet'}>
+      <div className="chart-rail chart-rail-top"><span>MAX {number.format(scale.ceiling)}</span><i /></div>
+      <div ref={chartRef} className="ascii-plot" role="img" aria-label={hasHistory ? `Queue history over ${history.days} days, observed maximum ${number.format(maximum)} tiles, scale zero to ${number.format(scale.ceiling)} tiles` : 'Queue history has no samples yet'}>
+        {scale.guides.length > 0 ? <div className="chart-guides" aria-hidden="true">
+          {scale.guides.map((value) => <span key={value} className="chart-guide" style={{ '--guide-position': `${value / scale.ceiling * 100}%` } as CSSProperties}>
+            <b>{number.format(value)}</b><i />
+          </span>)}
+        </div> : null}
         {hasHistory ? <div className="ascii-columns" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`, '--chart-rows': geometry.rows } as CSSProperties} aria-hidden="true">
           {columns.map((column, index) => <span key={index} className={`ascii-column ${column.tone}`} style={{ '--heat-color': column.color } as CSSProperties}>
             {Array.from({ length: column.rows }, (_, row) => <i key={row}>█</i>)}

@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LatestResponse } from '../../shared/types';
-import { App, buildAsciiColumns, buildHistoryRanges, calculateChartRowCount, Counter, interpolateHeatColor, QueueDelta, RollingNumber } from './App';
+import { App, buildAsciiColumns, buildHistoryRanges, calculateChartRowCount, calculateChartScale, Counter, interpolateHeatColor, QueueDelta, RollingNumber } from './App';
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -26,7 +26,7 @@ describe('App', () => {
         points: [{ observedAt: '2026-01-01T00:00:00Z', total: latest.sample!.queue.total, maxTotal: 12 }],
       } : latest), { status: 200 });
     }));
-    render(<App />);
+    const { container } = render(<App />);
     await waitFor(() => expect(screen.getByText('connected')).toBeInTheDocument());
     expect(screen.getByRole('heading', { name: 'root@minecraft : dynmap' })).toBeInTheDocument();
     expect(screen.getByText('88.50%')).toBeInTheDocument();
@@ -34,6 +34,7 @@ describe('App', () => {
     expect(screen.getByText('zoom tile queue')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Maps and worlds' })).not.toBeInTheDocument();
     expect(screen.getByText('awaiting change')).toBeInTheDocument();
+    await waitFor(() => expect([...container.querySelectorAll('.chart-guide b')].map((label) => label.textContent)).toEqual(['5', '10', '15']));
   });
 
   it('gives direction when the API is unavailable', async () => {
@@ -127,7 +128,7 @@ describe('buildAsciiColumns', () => {
       historyPoint('2026-01-01T00:10:00.000Z', 10, 20),
       historyPoint('2026-01-01T00:20:00.000Z', 5, 90),
     ], from, to, 24, 10);
-    expect(columns[0]).toMatchObject({ peak: 90, closing: 5, rows: 10 });
+    expect(columns[0]).toMatchObject({ peak: 90, closing: 5, rows: 9 });
   });
 
   it('keeps gaps empty and leaves the following rate neutral', () => {
@@ -160,12 +161,33 @@ describe('buildAsciiColumns', () => {
     expect(columns[1]?.rows).toBe(20);
   });
 
+  it('leaves headroom when the rounded scale ceiling exceeds the observed maximum', () => {
+    const columns = buildAsciiColumns([
+      historyPoint('2026-01-01T00:10:00.000Z', 12),
+    ], from, to, 24, 20);
+    expect(columns[0]?.rows).toBe(12);
+  });
+
   it('interpolates distinct colors across the full signed rate scale', () => {
     const colors = [-1, -.75, -.25, 0, .2, .5, .8, 1].map(interpolateHeatColor);
     expect(new Set(colors).size).toBe(colors.length);
     expect(interpolateHeatColor(-1)).toBe('#35ef84');
     expect(interpolateHeatColor(0)).toBe('#63d8e8');
     expect(interpolateHeatColor(1)).toBe('#ff4964');
+  });
+});
+
+describe('calculateChartScale', () => {
+  it('creates three evenly spaced round guides', () => {
+    expect(calculateChartScale(97)).toEqual({ ceiling: 100, guides: [25, 50, 75] });
+    expect(calculateChartScale(100)).toEqual({ ceiling: 100, guides: [25, 50, 75] });
+  });
+
+  it('handles small, empty, invalid, and large values safely', () => {
+    expect(calculateChartScale(1)).toEqual({ ceiling: 4, guides: [1, 2, 3] });
+    expect(calculateChartScale(0)).toEqual({ ceiling: 0, guides: [] });
+    expect(calculateChartScale(Number.NaN)).toEqual({ ceiling: 0, guides: [] });
+    expect(calculateChartScale(9_700)).toEqual({ ceiling: 10_000, guides: [2_500, 5_000, 7_500] });
   });
 });
 

@@ -38,5 +38,7 @@ test('shows live queue statistics and historical ASCII columns', async ({ page }
   await expect(page.locator('.ascii-column.growing').first()).toBeVisible();
   await expect(page.locator('.ascii-column.shrinking').first()).toBeVisible();
   await expect(page.locator('.ascii-column i').first()).toHaveText('█');
+  await expect(page.locator('.chart-guide')).toHaveCount(3);
+  await page.locator('.history-panel').screenshot({ path: testInfo.outputPath('backlog-chart.png') });
   await page.screenshot({ path: testInfo.outputPath('dashboard.png'), fullPage: true });
 });
