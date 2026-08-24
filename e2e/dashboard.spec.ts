@@ -63,9 +63,9 @@ test('keeps useful scale headroom just above two million tiles', async ({ page }
   }}));
 
   await page.goto('/');
-  const chart = page.getByRole('img', { name: /observed maximum 2\.000\.001 tiles, scale zero to 2\.500\.000 tiles/ });
+  const chart = page.getByRole('img', { name: /observed maximum 2\.000\.001 tiles, scale zero to 2\.200\.000 tiles/ });
   await expect(chart).toBeVisible();
-  await expect(page.locator('.chart-rail-top')).toContainText('MAX 2.500.000');
-  await expect(page.locator('.chart-guide b')).toHaveText(['500.000', '1.000.000', '1.500.000', '2.000.000']);
+  await expect(page.locator('.chart-rail-top')).toContainText('MAX 2.200.000');
+  await expect(page.locator('.chart-guide b')).toHaveText(['550.000', '1.100.000', '1.650.000']);
   await page.locator('.history-panel').screenshot({ path: testInfo.outputPath('backlog-chart-over-two-million.png') });
 });

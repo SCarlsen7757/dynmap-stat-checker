@@ -158,10 +158,10 @@ describe('buildAsciiColumns', () => {
       historyPoint('2026-01-01T01:10:00.000Z', 100),
     ], from, to, 24, 20);
     expect(columns[0]?.rows).toBe(5);
-    expect(columns[1]?.rows).toBe(20);
+    expect(columns[1]?.rows).toBe(17);
   });
 
-  it('leaves headroom when the rounded scale ceiling exceeds the observed maximum', () => {
+  it('leaves headroom when the observed maximum matches a rounded interval', () => {
     const columns = buildAsciiColumns([
       historyPoint('2026-01-01T00:10:00.000Z', 12),
     ], from, to, 24, 20);
@@ -180,12 +180,14 @@ describe('buildAsciiColumns', () => {
 describe('calculateChartScale', () => {
   it('creates three evenly spaced round guides when four bands fit best', () => {
     expect(calculateChartScale(97)).toEqual({ ceiling: 100, guides: [25, 50, 75] });
-    expect(calculateChartScale(100)).toEqual({ ceiling: 100, guides: [25, 50, 75] });
+    expect(calculateChartScale(100)).toEqual({ ceiling: 120, guides: [30, 60, 90] });
   });
 
   it('uses a fifth band instead of jumping to a wasteful ceiling', () => {
-    expect(calculateChartScale(2_000_000)).toEqual({ ceiling: 2_000_000, guides: [500_000, 1_000_000, 1_500_000] });
-    expect(calculateChartScale(2_000_001)).toEqual({ ceiling: 2_500_000, guides: [500_000, 1_000_000, 1_500_000, 2_000_000] });
+    expect(calculateChartScale(1_499_999)).toEqual({ ceiling: 1_500_000, guides: [300_000, 600_000, 900_000, 1_200_000] });
+    expect(calculateChartScale(1_500_001)).toEqual({ ceiling: 1_600_000, guides: [400_000, 800_000, 1_200_000] });
+    expect(calculateChartScale(2_000_000)).toEqual({ ceiling: 2_200_000, guides: [550_000, 1_100_000, 1_650_000] });
+    expect(calculateChartScale(2_000_001)).toEqual({ ceiling: 2_200_000, guides: [550_000, 1_100_000, 1_650_000] });
     expect(calculateChartScale(12)).toEqual({ ceiling: 15, guides: [3, 6, 9, 12] });
   });
 

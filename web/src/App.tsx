@@ -220,6 +220,7 @@ export function calculateChartRowCount(height: number, glyphSize: number): numbe
 }
 
 export type ChartScale = { ceiling: number; guides: number[] };
+const chartIntervalMultipliers = Array.from({ length: 19 }, (_, index) => 1 + index * .5);
 
 export function calculateChartScale(maximum: number): ChartScale {
   const safeMaximum = Number.isFinite(maximum) ? Math.max(0, maximum) : 0;
@@ -229,7 +230,7 @@ export function calculateChartScale(maximum: number): ChartScale {
     const rawInterval = safeMaximum / bandCount;
     const magnitude = 10 ** Math.floor(Math.log10(rawInterval));
     const normalized = rawInterval / magnitude;
-    const multiplier = [1, 2, 2.5, 5, 10].find((value) => value >= normalized - 1e-12) ?? 10;
+    const multiplier = chartIntervalMultipliers.find((value) => value > normalized + 1e-12) ?? 10;
     const interval = Math.max(1, Math.ceil(multiplier * magnitude));
     const ceiling = Number((interval * bandCount).toPrecision(12));
     const guides = Array.from({ length: bandCount - 1 }, (_, index) => Number((interval * (index + 1)).toPrecision(12)));
