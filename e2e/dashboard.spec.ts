@@ -42,3 +42,30 @@ test('shows live queue statistics and historical ASCII columns', async ({ page }
   await page.locator('.history-panel').screenshot({ path: testInfo.outputPath('backlog-chart.png') });
   await page.screenshot({ path: testInfo.outputPath('dashboard.png'), fullPage: true });
 });
+
+test('keeps useful scale headroom just above two million tiles', async ({ page }, testInfo) => {
+  const fromMs = Date.parse('2026-08-17T08:00:00.000Z');
+  const toMs = Date.parse('2026-08-24T08:00:00.000Z');
+  await page.unroute('**/api/stats/history?days=*');
+  await page.route('**/api/stats/history?days=*', (route) => route.fulfill({ json: {
+    days: 7,
+    from: new Date(fromMs).toISOString(),
+    to: new Date(toMs).toISOString(),
+    resolutionSeconds: 3600,
+    points: Array.from({ length: 120 }, (_, index) => {
+      const total = 1_000_000 + Math.round((.5 + Math.sin(index / 8) * .5) * 950_000);
+      return {
+        observedAt: new Date(fromMs + (toMs - fromMs) * index / 119).toISOString(),
+        total,
+        maxTotal: index === 60 ? 2_000_001 : total + 5_000,
+      };
+    }),
+  }}));
+
+  await page.goto('/');
+  const chart = page.getByRole('img', { name: /observed maximum 2\.000\.001 tiles, scale zero to 2\.500\.000 tiles/ });
+  await expect(chart).toBeVisible();
+  await expect(page.locator('.chart-rail-top')).toContainText('MAX 2.500.000');
+  await expect(page.locator('.chart-guide b')).toHaveText(['500.000', '1.000.000', '1.500.000', '2.000.000']);
+  await page.locator('.history-panel').screenshot({ path: testInfo.outputPath('backlog-chart-over-two-million.png') });
+});

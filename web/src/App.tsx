@@ -6,7 +6,7 @@ const number = new Intl.NumberFormat('da-DK');
 const historyAnchors = [1, 2, 7, 14, 30];
 const maximumChartRows = 48;
 const chartGlyphHeightFactor = 1.1;
-const chartBandCount = 4;
+const chartBandCounts = [4, 5] as const;
 
 export function buildHistoryRanges(retentionDays: number) {
   const values = [...historyAnchors.filter((days) => days <= retentionDays), retentionDays];
@@ -225,14 +225,18 @@ export function calculateChartScale(maximum: number): ChartScale {
   const safeMaximum = Number.isFinite(maximum) ? Math.max(0, maximum) : 0;
   if (safeMaximum === 0) return { ceiling: 0, guides: [] };
 
-  const rawInterval = safeMaximum / chartBandCount;
-  const magnitude = 10 ** Math.floor(Math.log10(rawInterval));
-  const normalized = rawInterval / magnitude;
-  const multiplier = [1, 2, 2.5, 5, 10].find((candidate) => candidate >= normalized) ?? 10;
-  const interval = Math.max(1, multiplier * magnitude);
-  const ceiling = Number((interval * chartBandCount).toPrecision(12));
-  const guides = Array.from({ length: chartBandCount - 1 }, (_, index) => Number((interval * (index + 1)).toPrecision(12)));
-  return { ceiling, guides };
+  const candidates = chartBandCounts.map((bandCount) => {
+    const rawInterval = safeMaximum / bandCount;
+    const magnitude = 10 ** Math.floor(Math.log10(rawInterval));
+    const normalized = rawInterval / magnitude;
+    const multiplier = [1, 2, 2.5, 5, 10].find((value) => value >= normalized - 1e-12) ?? 10;
+    const interval = Math.max(1, Math.ceil(multiplier * magnitude));
+    const ceiling = Number((interval * bandCount).toPrecision(12));
+    const guides = Array.from({ length: bandCount - 1 }, (_, index) => Number((interval * (index + 1)).toPrecision(12)));
+    return { ceiling, guides };
+  });
+
+  return candidates.reduce((best, candidate) => candidate.ceiling < best.ceiling ? candidate : best);
 }
 
 export function buildAsciiColumns(points: HistoryPoint[], from: string, to: string, requestedCount: number, requestedRows: number): AsciiColumn[] {
@@ -319,12 +323,13 @@ function QueueChart({ history }: { history: HistoryResponse | null }) {
   const columns = useMemo(() => history ? buildAsciiColumns(history.points, history.from, history.to, geometry.columns, geometry.rows) : [], [geometry, history]);
   const maximum = Math.max(0, ...columns.map((column) => column.peak ?? 0));
   const scale = calculateChartScale(maximum);
+  const guideGutter = `${Math.max(3.4, number.format(scale.ceiling).length * .58 + .5)}rem`;
   const hasHistory = history && history.points.length > 0;
 
   return (
     <div className="terminal-chart">
       <div className="chart-rail chart-rail-top"><span>MAX {number.format(scale.ceiling)}</span><i /></div>
-      <div ref={chartRef} className="ascii-plot" role="img" aria-label={hasHistory ? `Queue history over ${history.days} days, observed maximum ${number.format(maximum)} tiles, scale zero to ${number.format(scale.ceiling)} tiles` : 'Queue history has no samples yet'}>
+      <div ref={chartRef} className="ascii-plot" style={{ '--guide-gutter': guideGutter } as CSSProperties} role="img" aria-label={hasHistory ? `Queue history over ${history.days} days, observed maximum ${number.format(maximum)} tiles, scale zero to ${number.format(scale.ceiling)} tiles` : 'Queue history has no samples yet'}>
         {scale.guides.length > 0 ? <div className="chart-guides" aria-hidden="true">
           {scale.guides.map((value) => <span key={value} className="chart-guide" style={{ '--guide-position': `${value / scale.ceiling * 100}%` } as CSSProperties}>
             <b>{number.format(value)}</b><i />

@@ -34,7 +34,7 @@ describe('App', () => {
     expect(screen.getByText('zoom tile queue')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Maps and worlds' })).not.toBeInTheDocument();
     expect(screen.getByText('awaiting change')).toBeInTheDocument();
-    await waitFor(() => expect([...container.querySelectorAll('.chart-guide b')].map((label) => label.textContent)).toEqual(['5', '10', '15']));
+    await waitFor(() => expect([...container.querySelectorAll('.chart-guide b')].map((label) => label.textContent)).toEqual(['3', '6', '9', '12']));
   });
 
   it('gives direction when the API is unavailable', async () => {
@@ -165,7 +165,7 @@ describe('buildAsciiColumns', () => {
     const columns = buildAsciiColumns([
       historyPoint('2026-01-01T00:10:00.000Z', 12),
     ], from, to, 24, 20);
-    expect(columns[0]?.rows).toBe(12);
+    expect(columns[0]?.rows).toBe(16);
   });
 
   it('interpolates distinct colors across the full signed rate scale', () => {
@@ -178,9 +178,15 @@ describe('buildAsciiColumns', () => {
 });
 
 describe('calculateChartScale', () => {
-  it('creates three evenly spaced round guides', () => {
+  it('creates three evenly spaced round guides when four bands fit best', () => {
     expect(calculateChartScale(97)).toEqual({ ceiling: 100, guides: [25, 50, 75] });
     expect(calculateChartScale(100)).toEqual({ ceiling: 100, guides: [25, 50, 75] });
+  });
+
+  it('uses a fifth band instead of jumping to a wasteful ceiling', () => {
+    expect(calculateChartScale(2_000_000)).toEqual({ ceiling: 2_000_000, guides: [500_000, 1_000_000, 1_500_000] });
+    expect(calculateChartScale(2_000_001)).toEqual({ ceiling: 2_500_000, guides: [500_000, 1_000_000, 1_500_000, 2_000_000] });
+    expect(calculateChartScale(12)).toEqual({ ceiling: 15, guides: [3, 6, 9, 12] });
   });
 
   it('handles small, empty, invalid, and large values safely', () => {
